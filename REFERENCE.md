@@ -72,7 +72,7 @@ interface QueueOptions {
 interface RateLimiter {
   max: number,      // Max number of jobs processed
   duration: number, // per duration in milliseconds
-}
+  bounceBack: boolean = false; // When jobs get rate limited, they stay in the waiting queue and are not moved to the delayed queue
 ```
 
 ```RedisOpts``` are passed directly to ioredis constructor, check [ioredis](https://github.com/luin/ioredis/blob/master/API.md)
@@ -149,7 +149,7 @@ Defines a processing function for the jobs in a given Queue.
 
 The callback is called everytime a job is placed in the queue. It is passed an instance of the job as first argument.
 
-If the callback signature contains the second optional `done` argument, the callback will be passed a `done` callback to be called after the job has been completed. The `done` callback can be called with an Error instance, to signal that the job did not complete successfully, or with a result as second argument as second argument (e.g.: `done(null, result);`) when the job is successful. Errors will be passed as a second argument to the "failed" event;
+If the callback signature contains the second optional `done` argument, the callback will be passed a `done` callback to be called after the job has been completed. The `done` callback can be called with an Error instance, to signal that the job did not complete successfully, or with a result as second argument (e.g.: `done(null, result);`) when the job is successful. Errors will be passed as a second argument to the "failed" event;
 results, as a second argument to the "completed" event.
 
 If, however, the callback signature does not contain the `done` argument, a promise must be returned to signal job completion. If the promise is rejected, the error will be passed as a second argument to the "failed" event.
@@ -226,12 +226,12 @@ queue.process(function(job) { // No done callback here :)
 ### Queue#add
 
 ```ts
-add(name?: string, data: any, opts?: JobOpts): Promise<Job>
+add(name?: string, data: object, opts?: JobOpts): Promise<Job>
 ```
 
 Creates a new job and adds it to the queue. If the queue is empty the job will be executed directly, otherwise it will be placed in the queue and executed as soon as possible.
 
-An optional name can be added, so that only process functions defined for that name will process the job.
+An optional name can be added, so that only process functions defined for that name (also called job type) will process the job.
 
 **Note:**
 You need to define *processors* for all the named jobs that you add to your queue or the queue will complain that you are missing a processor for the given job, unless you use the ```*``` as job name when defining the processor.
@@ -272,9 +272,11 @@ interface JobOpts{
 interface RepeatOpts{
   cron?: string; // Cron string
   tz?: string, // Timezone
-  endDate?: Date | string | number; // End data when the repeat job should stop repeating.
+  startDate?: Date | string | number; // Start date when the repeat job should start repeating (only with cron).
+  endDate?: Date | string | number; // End date when the repeat job should stop repeating.
   limit?: number; // Number of times the job should repeat at max.
   every?: number; // Repeat every millis (cron setting cannot be used together with this setting.)
+  count?: number; // The start value for the repeat iteration count.
 }
 ```
 
@@ -726,6 +728,10 @@ A queue emits also some useful events:
 .on('error', function(error) {
   // An error occured.
 })
+
+.on('waiting', function(jobId){
+  // A Job is waiting to be processed as soon as a worker is idling.
+});
 
 .on('active', function(job, jobPromise){
   // A job has started. You can use `jobPromise.cancel()`` to abort it.

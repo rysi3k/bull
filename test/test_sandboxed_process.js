@@ -1,7 +1,7 @@
 /*eslint-env node */
 'use strict';
 
-var Promise = require('bluebird');
+var Bluebird = require('bluebird');
 var expect = require('chai').expect;
 var utils = require('./utils');
 var redis = require('ioredis');
@@ -113,7 +113,7 @@ describe('sandboxed process', function() {
     });
 
     queue.add('foo', { foo: 'bar' }).then(function() {
-      Promise.delay(500).then(function() {
+      Bluebird.delay(500).then(function() {
         queue.add('bar', { bar: 'qux' });
       });
     });
@@ -230,6 +230,7 @@ describe('sandboxed process', function() {
         expect(job.data).eql({ foo: 'bar' });
         expect(job.failedReason).eql('Manually failed processor');
         expect(err.message).eql('Manually failed processor');
+        expect(err.stack).include('fixture_processor_fail.js');
         expect(Object.keys(queue.childPool.retained)).to.have.lengthOf(0);
         expect(queue.childPool.getAllFree()).to.have.lengthOf(1);
         done();
@@ -241,7 +242,16 @@ describe('sandboxed process', function() {
     queue.add({ foo: 'bar' });
   });
 
-  it('should process and fail', function(done) {
+  it('should error if processor file is missing', function(done) {
+    try {
+      queue.process(__dirname + '/fixtures/missing_processor.js');
+      done(new Error('did not throw error'));
+    } catch (err) {
+      done();
+    }
+  });
+
+  it('should process and fail using callback', function(done) {
     queue.process(__dirname + '/fixtures/fixture_processor_callback_fail.js');
 
     queue.on('failed', function(job, err) {
@@ -260,6 +270,52 @@ describe('sandboxed process', function() {
     queue.add({ foo: 'bar' });
   });
 
+  it('should fail if the process crashes', function() {
+    queue.process(__dirname + '/fixtures/fixture_processor_crash.js');
+
+    return queue
+      .add({})
+      .then(function(job) {
+        return Bluebird.resolve(job.finished()).reflect();
+      })
+      .then(function(inspection) {
+        expect(inspection.isRejected()).to.be.eql(true);
+        expect(inspection.reason().message).to.be.eql('boom!');
+      });
+  });
+
+  it('should fail if the process exits 0', function() {
+    queue.process(__dirname + '/fixtures/fixture_processor_crash.js');
+
+    return queue
+      .add({ exitCode: 0 })
+      .then(function(job) {
+        return Bluebird.resolve(job.finished()).reflect();
+      })
+      .then(function(inspection) {
+        expect(inspection.isRejected()).to.be.eql(true);
+        expect(inspection.reason().message).to.be.eql(
+          'Unexpected exit code: 0'
+        );
+      });
+  });
+
+  it('should fail if the process exits non-0', function() {
+    queue.process(__dirname + '/fixtures/fixture_processor_crash.js');
+
+    return queue
+      .add({ exitCode: 1 })
+      .then(function(job) {
+        return Bluebird.resolve(job.finished()).reflect();
+      })
+      .then(function(inspection) {
+        expect(inspection.isRejected()).to.be.eql(true);
+        expect(inspection.reason().message).to.be.eql(
+          'Unexpected exit code: 1'
+        );
+      });
+  });
+
   it('should remove exited process', function(done) {
     queue.process(__dirname + '/fixtures/fixture_processor_exit.js');
 
@@ -267,7 +323,7 @@ describe('sandboxed process', function() {
       try {
         expect(Object.keys(queue.childPool.retained)).to.have.lengthOf(0);
         expect(queue.childPool.getAllFree()).to.have.lengthOf(1);
-        Promise.delay(500)
+        Bluebird.delay(500)
           .then(function() {
             expect(Object.keys(queue.childPool.retained)).to.have.lengthOf(0);
             expect(queue.childPool.getAllFree()).to.have.lengthOf(0);

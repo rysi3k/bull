@@ -2,7 +2,6 @@
 'use strict';
 
 var expect = require('chai').expect;
-var redis = require('ioredis');
 var childPool = require('../lib/process/child-pool');
 
 describe('Child pool', function() {
@@ -14,17 +13,6 @@ describe('Child pool', function() {
 
   afterEach(function() {
     pool.clean();
-  });
-
-  it('should raise an expection if invalid processor', function() {
-    return pool.retain('foobar').then(
-      function() {
-        throw new Error('Should raise an exception');
-      },
-      function(err) {
-        expect(err).to.be.instanceOf(Error);
-      }
-    );
   });
 
   it('should return same child if free', function() {
